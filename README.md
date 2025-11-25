@@ -124,7 +124,11 @@ UrbanBreath-Analytics/
 │       └── style.css       # Custom Styling
 ├── templates/
 │   ├── index.html          # Dashboard / Map View
-│   └── results.html        # Detailed Analysis Page
+│   └── results.html  
+├── Documents/
+│   └── Project documents 
+├── Training_Documents/
+│   └──SIH25178_Updated_algo_xg.ipynb    #Training document            
 └── README.md               # Project Documentation
 ```
 ---
