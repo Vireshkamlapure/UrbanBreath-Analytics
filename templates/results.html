@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ site_info.name }} - Air Quality Analysis</title>
+    <title>{{ site_info.name }} - AirSight AI Analysis</title>
+    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.css">
     
     <style>
@@ -99,10 +101,11 @@
     </style>
 </head>
 <body>
+    <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-transparent pt-3 pb-3">
         <div class="container">
             <a class="navbar-brand fs-3" href="/">
-                <i class="fas fa-wind"></i> Delhi Air Quality
+                <i class="fas fa-wind"></i> AirSight AI
             </a>
             <a href="/" class="btn back-btn rounded-pill px-4">
                 <i class="fas fa-arrow-left me-2"></i> Back to Map
@@ -111,6 +114,7 @@
     </nav>
 
     <div class="container mt-4">
+        <!-- Header Section -->
         <div class="row mb-4">
             <div class="col-12 text-white">
                 <h1>📍 {{ site_info.name }}</h1>
@@ -121,7 +125,34 @@
             </div>
         </div>
 
+        <!-- Weather Info Cards (NEW) -->
+        <div class="row mb-4" id="weather-section" style="display: none;">
+            <div class="col-md-4">
+                <div class="glass-card p-3 text-center">
+                    <i class="fas fa-temperature-high fs-2 text-danger mb-2"></i>
+                    <h5>Temperature</h5>
+                    <h3 id="disp-temp">-- °C</h3>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="glass-card p-3 text-center">
+                    <i class="fas fa-wind fs-2 text-info mb-2"></i>
+                    <h5>Wind Speed</h5>
+                    <h3 id="disp-wind">-- km/h</h3>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="glass-card p-3 text-center">
+                    <i class="fas fa-tint fs-2 text-primary mb-2"></i>
+                    <h5>Humidity</h5>
+                    <h3 id="disp-humidity">-- %</h3>
+                </div>
+            </div>
+        </div>
+
+        <!-- Summary Cards (Current Hour) -->
         <div class="row mb-4" id="summary-section" style="display: none;">
+            <!-- O3 Card -->
             <div class="col-md-6 mb-3">
                 <div class="glass-card stat-card" id="o3-summary-card">
                     <div class="stat-label">Current Ozone (O₃)</div>
@@ -132,6 +163,7 @@
                     </div>
                 </div>
             </div>
+            <!-- NO2 Card -->
             <div class="col-md-6 mb-3">
                 <div class="glass-card stat-card" id="no2-summary-card">
                     <div class="stat-label">Current Nitrogen Dioxide (NO₂)</div>
@@ -144,6 +176,7 @@
             </div>
         </div>
 
+        <!-- Chart Section -->
         <div class="row">
             <div class="col-12">
                 <div class="glass-card p-4">
@@ -155,6 +188,7 @@
             </div>
         </div>
 
+        <!-- Detailed Data Table -->
         <div class="row">
             <div class="col-12">
                 <div class="glass-card p-4">
@@ -179,6 +213,8 @@
         </div>
     </div>
 
+    <!-- SCRIPTS -->
+    <!-- Chart.js for beautiful graphs -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <script>
@@ -204,7 +240,15 @@
             const preds = data.predictions;
             if (!preds || preds.length === 0) return;
 
-            // --- A. Update Summary Cards (Use 1st Hour) ---
+            // --- A. Update Weather Cards (NEW) ---
+            if (data.current_weather) {
+                document.getElementById('disp-temp').textContent = data.current_weather.temp_c + ' °C';
+                document.getElementById('disp-wind').textContent = data.current_weather.wind_speed + ' km/h';
+                document.getElementById('disp-humidity').textContent = data.current_weather.humidity + ' %';
+                document.getElementById('weather-section').style.display = 'flex';
+            }
+
+            // --- B. Update Summary Cards (Use 1st Hour) ---
             const current = preds[0];
             
             // O3 Card
@@ -212,7 +256,6 @@
             document.getElementById('current-o3-cat').textContent = current.o3_category;
             const o3Card = document.getElementById('o3-summary-card');
             o3Card.style.backgroundColor = current.o3_color;
-            // Add a slight gradient for depth
             o3Card.style.backgroundImage = `linear-gradient(135deg, ${current.o3_color} 0%, rgba(0,0,0,0.2) 100%)`;
 
             // NO2 Card
@@ -224,7 +267,7 @@
 
             document.getElementById('summary-section').style.display = 'flex';
 
-            // --- B. Render Chart ---
+            // --- C. Render Chart ---
             const ctx = document.getElementById('airQualityChart').getContext('2d');
             
             // Extract data for chart
@@ -276,7 +319,7 @@
                 }
             });
 
-            // --- C. Update Table (Fixing the Color Issue) ---
+            // --- D. Update Table ---
             const tbody = document.getElementById('predictions-table-body');
             let tableHtml = '';
 

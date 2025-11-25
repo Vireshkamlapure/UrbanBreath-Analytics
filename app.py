@@ -4,6 +4,7 @@ import numpy as np
 import joblib
 from datetime import datetime, timedelta
 import os
+import requests
 
 app = Flask(__name__)
 
@@ -15,21 +16,18 @@ def load_models():
     """Load the unified XGBoost models and feature list"""
     print("🔄 Loading models...")
     try:
-        # Load the two combined models
         o3_model = joblib.load(os.path.join(MODEL_DIR, 'model_o3_combined.pkl'))
         no2_model = joblib.load(os.path.join(MODEL_DIR, 'model_no2_combined.pkl'))
         features = joblib.load(os.path.join(MODEL_DIR, 'model_features.pkl'))
-        
         print("✅ Models loaded successfully!")
         return {'O3': o3_model, 'NO2': no2_model, 'features': features}
     except Exception as e:
         print(f"❌ Error loading models: {e}")
         return None
 
-# Load models once at startup
 MODELS = load_models()
 
-# Site coordinates (Same as before)
+# Site coordinates
 SITE_COORDINATES = {
     1: {"lat": 28.69536, "lon": 77.18168, "name": "Ashok Vihar"},
     2: {"lat": 28.5718, "lon": 77.07125, "name": "Indira Gandhi Airport"},
@@ -40,10 +38,112 @@ SITE_COORDINATES = {
     7: {"lat": 28.71052, "lon": 77.24951, "name": "Rajiv Nagar"}
 }
 
-# --- 2. HELPER FUNCTIONS ---
+# --- 2. REAL WEATHER DATA FETCHING ---
+
+def fetch_live_weather(lat, lon):
+    """
+    Fetches real-time forecast data from Open-Meteo API.
+    Returns a DataFrame formatted for our model.
+    """
+    try:
+        # API Endpoint for Hourly Forecast
+        url = "https://api.open-meteo.com/v1/forecast"
+        # Removed 'vertical_velocity' because it requires a pressure level (e.g., _950hPa)
+        # and causes a 400 Bad Request if requested as a surface variable.
+        params = {
+            "latitude": lat,
+            "longitude": lon,
+            "hourly": "temperature_2m,relative_humidity_2m,surface_pressure,wind_speed_10m,wind_direction_10m",
+            "timezone": "Asia/Kolkata",
+            "forecast_days": 2 
+        }
+        
+        response = requests.get(url, params=params)
+        
+        # Check for non-200 status codes
+        if response.status_code != 200:
+            print(f"⚠️ Open-Meteo API Error {response.status_code}: {response.text}")
+            return generate_dummy_forecast(24)
+
+        data = response.json()
+        
+        # Extract hourly data
+        if 'hourly' not in data:
+            print(f"⚠️ API Response missing 'hourly' key. Full response: {data}")
+            return generate_dummy_forecast(24)
+
+        hourly = data['hourly']
+        df = pd.DataFrame({
+            'time': pd.to_datetime(hourly['time']),
+            'T_forecast': hourly['temperature_2m'], # Celsius
+            'rh': hourly['relative_humidity_2m'],
+            'pressure': hourly['surface_pressure'],
+            'wind_speed_raw': hourly['wind_speed_10m'],
+            'wind_dir': hourly['wind_direction_10m'],
+            # Vertical velocity is not provided by this API call, so we default to 0.1
+            'w_forecast': 0.1 
+        })
+        
+        # Filter for next 24 hours starting now
+        current_time = datetime.now()
+        df = df[df['time'] >= current_time].head(24).reset_index(drop=True)
+        
+        # --- CONVERSIONS FOR MODEL ---
+        # 1. Temperature: Model trained on Kelvin (K = C + 273.15)
+        df['T_forecast'] = df['T_forecast'] + 273.15
+        
+        # 2. Specific Humidity (q): Approx calculation from RH and T
+        # Es = Saturation Vapor Pressure (hPa)
+        # q ≈ 0.622 * (Es * RH/100) / Pressure
+        es = 6.112 * np.exp((17.67 * (df['T_forecast'] - 273.15)) / ((df['T_forecast'] - 273.15) + 243.5))
+        e = es * (df['rh'] / 100.0)
+        df['q_forecast'] = (0.622 * e) / df['pressure']
+        
+        # 3. Wind Components (u, v)
+        # Convert direction to radians
+        # Meteo direction: 0=North (blowing FROM North), 90=East
+        # Math direction: 0=East, 90=North
+        # u = -ws * sin(theta), v = -ws * cos(theta)
+        rads = np.deg2rad(df['wind_dir'])
+        df['u_forecast'] = -df['wind_speed_raw'] * np.sin(rads)
+        df['v_forecast'] = -df['wind_speed_raw'] * np.cos(rads)
+        
+        # 4. Add Date/Time columns
+        df['year'] = df['time'].dt.year
+        df['month'] = df['time'].dt.month
+        df['day'] = df['time'].dt.day
+        df['hour'] = df['time'].dt.hour
+        
+        # 5. Fill Missing Satellite Data (Use averages as fallback)
+        df['O3_forecast'] = 50.0 
+        df['NO2_forecast'] = 30.0
+        df['NO2_satellite'] = 0.0001
+        df['HCHO_satellite'] = 0.0001
+        df['ratio_satellite'] = 1.0
+        
+        return df
+        
+    except Exception as e:
+        print(f"⚠️ API Error: {e}. Falling back to dummy data.")
+        return generate_dummy_forecast(24) # Fallback if API fails
+
+def generate_dummy_forecast(hours=24):
+    """Fallback generator if API is down"""
+    start_time = datetime.now()
+    data = []
+    for i in range(hours):
+        t = start_time + timedelta(hours=i)
+        data.append({
+            'year': t.year, 'month': t.month, 'day': t.day, 'hour': t.hour,
+            'O3_forecast': 50, 'NO2_forecast': 30, 'T_forecast': 300,
+            'q_forecast': 0.015, 'u_forecast': 2, 'v_forecast': 2, 'w_forecast': 0.1,
+            'NO2_satellite': 0.0001, 'HCHO_satellite': 0.0001, 'ratio_satellite': 1.0
+        })
+    return pd.DataFrame(data)
+
+# --- 3. HELPER FUNCTIONS (Same as before) ---
 
 def get_aqi_category(pollutant, value):
-    """Determine AQI category based on pollution level"""
     if pollutant == 'O3':
         if value <= 50: return "Good"
         if value <= 100: return "Satisfactory"
@@ -67,61 +167,27 @@ def get_color(category):
     return colors.get(category, "#666666")
 
 def preprocess_data(df, site_id):
-    """
-    Transform raw forecast data into the Exact 22 Features expected by XGBoost.
-    Adds derived features (wind_speed, sin/cos time) and location data.
-    """
-    # 1. Add Location Data
+    """Transform raw data into Model Features"""
     site_info = SITE_COORDINATES.get(site_id)
     df['latitude'] = site_info['lat']
     df['longitude'] = site_info['lon']
     df['site_id'] = site_id
 
-    # 2. Feature Engineering (Must match training logic!)
-    # Wind Speed
+    # Feature Engineering
     df['wind_speed'] = np.sqrt(df['u_forecast']**2 + df['v_forecast']**2)
-    
-    # Cyclical Time Features
     df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
     df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
     df['month_sin'] = np.sin(2 * np.pi * df['month'] / 12)
     df['month_cos'] = np.cos(2 * np.pi * df['month'] / 12)
 
-    # 3. Handle Satellite Data (Fill with defaults if missing, just like training)
-    # Note: In a real app, you might fetch this from an API. Here we assume it's in df.
-    
-    # 4. Reorder columns to match model expectations exactly
     expected_features = MODELS['features']
-    
-    # Ensure all columns exist, fill with 0 if missing (robustness)
     for col in expected_features:
         if col not in df.columns:
             df[col] = 0.0
             
     return df[expected_features]
 
-def generate_dummy_forecast(hours=24):
-    """Generates realistic-looking dummy weather data for demonstration"""
-    start_time = datetime.now()
-    data = []
-    for i in range(hours):
-        t = start_time + timedelta(hours=i)
-        data.append({
-            'year': t.year, 'month': t.month, 'day': t.day, 'hour': t.hour,
-            'O3_forecast': np.random.normal(50, 10),  # Mock reanalysis data
-            'NO2_forecast': np.random.normal(30, 10),
-            'T_forecast': np.random.normal(300, 5),   # Kelvin
-            'q_forecast': 0.015,
-            'u_forecast': np.random.normal(2, 1),
-            'v_forecast': np.random.normal(2, 1),
-            'w_forecast': 0.1,
-            'NO2_satellite': 0.0001,
-            'HCHO_satellite': 0.0001,
-            'ratio_satellite': 1.0
-        })
-    return pd.DataFrame(data)
-
-# --- 3. ROUTES ---
+# --- 4. ROUTES ---
 
 @app.route('/')
 def index():
@@ -129,41 +195,42 @@ def index():
 
 @app.route('/result/<int:site_id>')
 def show_site_result(site_id):
-    """Render the detailed result page for a specific site"""
-    # 1. Get the site info
     site_info = SITE_COORDINATES.get(site_id)
-    
-    # 2. Safety check: If site doesn't exist, go back home
-    if not site_info:
-        return "Site not found", 404
-        
-    # 3. Render the template with the specific site's data
-    # Note: We pass an empty map_html string to prevent errors if your template expects it
+    if not site_info: return "Site not found", 404
     return render_template('results.html', site_id=site_id, site_info=site_info, map_html="")
 
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
-        # 1. Get User Input
         req = request.get_json()
         site_id = int(req.get('site_id', 1))
+        site_info = SITE_COORDINATES.get(site_id)
         
-        # 2. Generate Forecast Data (Replace this with real API data if you have it)
-        input_df = generate_dummy_forecast(hours=24)
+        # 1. Fetch REAL Weather Data
+        input_df = fetch_live_weather(site_info['lat'], site_info['lon'])
         
-        # 3. Preprocess (Add Lat/Lon, Wind Speed, etc.)
+        # 2. Preprocess
         processed_df = preprocess_data(input_df, site_id)
         
-        # 4. Predict
+        # 3. Predict
         pred_o3 = MODELS['O3'].predict(processed_df)
         pred_no2 = MODELS['NO2'].predict(processed_df)
         
-        # 5. Format Response for UI
+        # 4. Format Results
         results = []
         current_time = datetime.now()
+        
+        # Get current weather conditions (from the first row of input_df)
+        # Note: We explicitly cast to python float to avoid "int64 not JSON serializable" errors
+        current_weather = {
+            'temp_c': float(round(input_df.iloc[0]['T_forecast'] - 273.15, 1)),
+            'wind_speed': float(round(input_df.iloc[0]['wind_speed_raw'], 1)),
+            'humidity': float(round(input_df.iloc[0]['rh'], 1))
+        }
+
         for i in range(len(pred_o3)):
             t = current_time + timedelta(hours=i)
-            o3_val = float(max(0, pred_o3[i])) # Ensure no negative pollution
+            o3_val = float(max(0, pred_o3[i]))
             no2_val = float(max(0, pred_no2[i]))
             
             o3_cat = get_aqi_category('O3', o3_val)
@@ -180,39 +247,38 @@ def predict():
             })
             
         return jsonify({
-            'success': True,
-            'predictions': results,
-            'site_name': SITE_COORDINATES[site_id]['name']
+            'success': True, 
+            'predictions': results, 
+            'site_name': site_info['name'],
+            'current_weather': current_weather
         })
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error in predict: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/gradient_data')
 def gradient_data():
-    """Returns current pollution levels for ALL sites to color the map"""
     try:
         data = {}
         for site_id, info in SITE_COORDINATES.items():
-            # Predict for just the current hour (1 row)
-            df = generate_dummy_forecast(hours=1)
+            # Use dummy for gradient map to be fast (API rate limits apply)
+            # Or fetch real data if you cache it. For now, dummy ensures speed.
+            df = generate_dummy_forecast(1) 
             processed = preprocess_data(df, site_id)
             
             o3 = float(MODELS['O3'].predict(processed)[0])
             no2 = float(MODELS['NO2'].predict(processed)[0])
             
             data[site_id] = {
-                'lat': info['lat'],
-                'lon': info['lon'],
-                'name': info['name'],
-                'o3': round(o3, 2),
-                'no2': round(no2, 2),
+                'lat': info['lat'], 'lon': info['lon'], 'name': info['name'],
+                'o3': round(o3, 2), 'no2': round(no2, 2),
                 'o3_color': get_color(get_aqi_category('O3', o3)),
-                'no2_color': get_color(get_aqi_category('NO2', no2))
+                'no2_color': get_color(get_aqi_category('NO2', no2)),
+                'o3_category': get_aqi_category('O3', o3),
+                'no2_category': get_aqi_category('NO2', no2)
             }
         return jsonify({'success': True, 'gradient_data': data})
-        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
