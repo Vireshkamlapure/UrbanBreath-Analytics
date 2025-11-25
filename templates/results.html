@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ site_info.name }} - Air Quality Analysis</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.css">
+    
+    <style>
+        body {
+            /* Matches your Index page gradient */
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #333;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            margin-bottom: 20px;
+            transition: transform 0.3s ease;
+        }
+
+        .glass-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-card {
+            text-align: center;
+            padding: 20px;
+            border-radius: 12px;
+            color: white;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+        }
+
+        .stat-label {
+            font-size: 1rem;
+            opacity: 0.9;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-category {
+            background: rgba(0,0,0,0.2);
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            display: inline-block;
+            margin-top: 5px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+            width: 100%;
+        }
+
+        .badge-custom {
+            font-size: 0.9em;
+            padding: 8px 12px;
+            border-radius: 6px;
+            color: white; /* Ensure text is readable on colored backgrounds */
+            text-shadow: 0 0 2px rgba(0,0,0,0.5); /* Shadow for better contrast */
+        }
+        
+        .table-container {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        /* Custom Scrollbar */
+        .table-container::-webkit-scrollbar { width: 8px; }
+        .table-container::-webkit-scrollbar-track { background: #f1f1f1; }
+        .table-container::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        .table-container::-webkit-scrollbar-thumb:hover { background: #555; }
+
+        .back-btn {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.4);
+            color: white;
+            transition: all 0.3s;
+        }
+        .back-btn:hover {
+            background: white;
+            color: #764ba2;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-transparent pt-3 pb-3">
+        <div class="container">
+            <a class="navbar-brand fs-3" href="/">
+                <i class="fas fa-wind"></i> Delhi Air Quality
+            </a>
+            <a href="/" class="btn back-btn rounded-pill px-4">
+                <i class="fas fa-arrow-left me-2"></i> Back to Map
+            </a>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col-12 text-white">
+                <h1>📍 {{ site_info.name }}</h1>
+                <p class="lead opacity-75">
+                    <i class="fas fa-location-dot me-2"></i> 
+                    Lat: {{ site_info.lat }} | Lon: {{ site_info.lon }}
+                </p>
+            </div>
+        </div>
+
+        <div class="row mb-4" id="summary-section" style="display: none;">
+            <div class="col-md-6 mb-3">
+                <div class="glass-card stat-card" id="o3-summary-card">
+                    <div class="stat-label">Current Ozone (O₃)</div>
+                    <div class="stat-value" id="current-o3">--</div>
+                    <div class="stat-category" id="current-o3-cat">--</div>
+                    <div style="position: absolute; right: 10px; top: 10px; opacity: 0.2;">
+                        <i class="fas fa-cloud fs-1"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <div class="glass-card stat-card" id="no2-summary-card">
+                    <div class="stat-label">Current Nitrogen Dioxide (NO₂)</div>
+                    <div class="stat-value" id="current-no2">--</div>
+                    <div class="stat-category" id="current-no2-cat">--</div>
+                    <div style="position: absolute; right: 10px; top: 10px; opacity: 0.2;">
+                        <i class="fas fa-smog fs-1"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="glass-card p-4">
+                    <h4 class="mb-4 text-primary"><i class="fas fa-chart-line me-2"></i> 24-Hour Forecast Trend</h4>
+                    <div class="chart-container">
+                        <canvas id="airQualityChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="glass-card p-4">
+                    <h4 class="mb-3 text-secondary"><i class="fas fa-table me-2"></i> Detailed Hourly Data</h4>
+                    <div class="table-container">
+                        <table class="table table-hover align-middle">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Ozone (O₃) Level</th>
+                                    <th>NO₂ Level</th>
+                                    <th>Health Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="predictions-table-body">
+                                <tr><td colspan="4" class="text-center p-3">Loading forecast data...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <script>
+        // 1. Fetch Data when page loads
+        document.addEventListener("DOMContentLoaded", function() {
+            fetch('/predict', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ site_id: {{ site_id }} })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateDashboard(data);
+                } else {
+                    alert("Error loading data: " + data.error);
+                }
+            })
+            .catch(err => console.error("Error:", err));
+        });
+
+        function updateDashboard(data) {
+            const preds = data.predictions;
+            if (!preds || preds.length === 0) return;
+
+            // --- A. Update Summary Cards (Use 1st Hour) ---
+            const current = preds[0];
+            
+            // O3 Card
+            document.getElementById('current-o3').textContent = current.o3;
+            document.getElementById('current-o3-cat').textContent = current.o3_category;
+            const o3Card = document.getElementById('o3-summary-card');
+            o3Card.style.backgroundColor = current.o3_color;
+            // Add a slight gradient for depth
+            o3Card.style.backgroundImage = `linear-gradient(135deg, ${current.o3_color} 0%, rgba(0,0,0,0.2) 100%)`;
+
+            // NO2 Card
+            document.getElementById('current-no2').textContent = current.no2;
+            document.getElementById('current-no2-cat').textContent = current.no2_category;
+            const no2Card = document.getElementById('no2-summary-card');
+            no2Card.style.backgroundColor = current.no2_color;
+            no2Card.style.backgroundImage = `linear-gradient(135deg, ${current.no2_color} 0%, rgba(0,0,0,0.2) 100%)`;
+
+            document.getElementById('summary-section').style.display = 'flex';
+
+            // --- B. Render Chart ---
+            const ctx = document.getElementById('airQualityChart').getContext('2d');
+            
+            // Extract data for chart
+            const labels = preds.map(p => p.timestamp.split(' ')[1]); // Time only
+            const o3Data = preds.map(p => p.o3);
+            const no2Data = preds.map(p => p.no2);
+
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Ozone (O₃)',
+                            data: o3Data,
+                            borderColor: '#36a2eb', // Blue
+                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                            tension: 0.4,
+                            fill: true,
+                            borderWidth: 3
+                        },
+                        {
+                            label: 'Nitrogen Dioxide (NO₂)',
+                            data: no2Data,
+                            borderColor: '#ff6384', // Red
+                            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                            tension: 0.4,
+                            fill: true,
+                            borderWidth: 3
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: { mode: 'index', intersect: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Concentration (µg/m³)' }
+                        },
+                        x: {
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+
+            // --- C. Update Table (Fixing the Color Issue) ---
+            const tbody = document.getElementById('predictions-table-body');
+            let tableHtml = '';
+
+            preds.forEach(p => {
+                // Determine text color based on background brightness (simple check)
+                const o3TextColor = (p.o3_color === '#ffff00' || p.o3_color === '#00e400') ? 'black' : 'white';
+                const no2TextColor = (p.no2_color === '#ffff00' || p.no2_color === '#00e400') ? 'black' : 'white';
+
+                tableHtml += `
+                    <tr>
+                        <td class="fw-bold">${p.timestamp}</td>
+                        <td>
+                            <span class="badge-custom" style="background-color: ${p.o3_color}; color: ${o3TextColor}">
+                                ${p.o3} µg/m³
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge-custom" style="background-color: ${p.no2_color}; color: ${no2TextColor}">
+                                ${p.no2} µg/m³
+                            </span>
+                        </td>
+                        <td>
+                            <small class="text-muted d-block">O₃: <strong>${p.o3_category}</strong></small>
+                            <small class="text-muted d-block">NO₂: <strong>${p.no2_category}</strong></small>
+                        </td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = tableHtml;
+        }
+    </script>
+</body>
+</html>

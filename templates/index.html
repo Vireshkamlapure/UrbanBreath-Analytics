@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delhi Air Quality Forecast</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .navbar-brand {
+            font-weight: bold;
+        }
+        .card {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            margin-bottom: 15px;
+        }
+        .site-card {
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-left: 4px solid #007bff;
+        }
+        .site-card:hover {
+            transform: translateY(-2px);
+            background-color: #f8f9fa;
+        }
+        
+        /* FULL WIDTH HORIZONTAL PREDICTION BLOCKS */
+        .predictions-horizontal {
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            padding: 15px 0;
+            width: 100%;
+        }
+        
+        .prediction-card-horizontal {
+            flex: 0 0 auto;
+            width: 180px;
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+        
+        /* HORIZONTAL GRADIENT INFO BLOCKS */
+        .gradient-horizontal {
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            padding: 15px 0;
+            width: 100%;
+        }
+        
+        .gradient-card-horizontal {
+            flex: 0 0 auto;
+            width: 200px;
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+        
+        .prediction-time, .gradient-time {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+        }
+        
+        .gas-values-horizontal, .gradient-values-horizontal {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .gas-value-horizontal, .gradient-value-horizontal {
+            padding: 8px;
+            border-radius: 6px;
+            color: white;
+            font-weight: bold;
+        }
+        
+        /* BLACK BACKGROUND FOR GAS VALUES */
+        .gas-value-horizontal.o3, .gradient-value-horizontal.o3 {
+            background-color: #000000;
+            border: 2px solid;
+        }
+        
+        .gas-value-horizontal.no2, .gradient-value-horizontal.no2 {
+            background-color: #000000;
+            border: 2px solid;
+        }
+        
+        .gas-label-horizontal, .gradient-label-horizontal {
+            font-size: 0.8em;
+            opacity: 0.8;
+            margin-bottom: 3px;
+        }
+        
+        .gas-number-horizontal, .gradient-number-horizontal {
+            font-size: 1.1em;
+            margin-bottom: 3px;
+        }
+        
+        .gas-category-horizontal, .gradient-category-horizontal {
+            font-size: 0.65em;
+            padding: 2px 5px;
+            border-radius: 3px;
+            display: inline-block;
+        }
+        
+        #map {
+            height: 500px;
+            border-radius: 10px;
+        }
+        
+        /* Custom scrollbar for horizontal sections */
+        .predictions-horizontal::-webkit-scrollbar,
+        .gradient-horizontal::-webkit-scrollbar {
+            height: 8px;
+        }
+        
+        .predictions-horizontal::-webkit-scrollbar-track,
+        .gradient-horizontal::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+        
+        .predictions-horizontal::-webkit-scrollbar-thumb,
+        .gradient-horizontal::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+        
+        .predictions-horizontal::-webkit-scrollbar-thumb:hover,
+        .gradient-horizontal::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        
+        /* Full width container for horizontal sections */
+        .full-width-section {
+            margin-left: -15px;
+            margin-right: -15px;
+            padding-left: 15px;
+            padding-right: 15px;
+        }
+        
+        /* Gradient controls */
+        .gradient-controls {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 5px;
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            min-width: 200px;
+        }
+        
+        .gradient-legend {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 5px;
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            z-index: 1000;
+            min-width: 150px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
+            border-radius: 3px;
+        }
+        
+        .site-name-gradient {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-wind"></i> Delhi Air Quality Forecast
+            </a>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h1 class="display-6">🌤️ Air Quality Forecasting</h1>
+                        <p class="lead mb-0">Real-time O₃ and NO₂ predictions with gradient visualization</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0"><i class="fas fa-map-marker-alt"></i> Air Quality Gradient Map</h5>
+                    </div>
+                    <div class="card-body position-relative">
+                        <div id="map"></div>
+                        <div class="gradient-controls">
+                            <h6>Gradient Layer</h6>
+                            <select id="pollutant-select" class="form-select form-select-sm" onchange="updateGradientLayer()">
+                                <option value="o3">O₃ Concentration</option>
+                                <option value="no2">NO₂ Concentration</option>
+                            </select>
+                            <div class="form-check mt-2">
+                                <input class="form-check-input" type="checkbox" id="show-gradient" checked onchange="updateGradientLayer()">
+                                <label class="form-check-label" for="show-gradient">
+                                    Show Gradient
+                                </label>
+                            </div>
+                        </div>
+                        <div class="gradient-legend">
+                            <h6>AQI Levels</h6>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background-color: #00e400;"></div>
+                                <small>Good</small>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background-color: #ffff00;"></div>
+                                <small>Satisfactory</small>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background-color: #ff7e00;"></div>
+                                <small>Moderate</small>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background-color: #ff0000;"></div>
+                                <small>Poor</small>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background-color: #8f3f97;"></div>
+                                <small>Very Poor</small>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background-color: #7e0023;"></div>
+                                <small>Severe</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0"><i class="fas fa-location-dot"></i> Select Station</h5>
+                    </div>
+                    <div class="card-body">
+                        {% for site_id, site in sites.items() %}
+                        <div class="site-card card mb-2" onclick="getPredictions({{ site_id }})">
+                            <div class="card-body py-2 d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="card-title mb-1">📍 {{ site.name }}</h6>
+                                    <small class="text-muted">Site {{ site_id }}</small>
+                                </div>
+                                <a href="/result/{{ site_id }}" class="btn btn-sm btn-light text-primary" 
+                                   onclick="event.stopPropagation()" title="Open Full Page Report">
+                                    <i class="fas fa-external-link-alt"></i>
+                                </a>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4 full-width-section">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0"><i class="fas fa-map"></i> Current Air Quality - All Stations 
+                            <span class="badge bg-light text-dark ms-2" id="current-pollutant-display">O₃</span>
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="gradient-info">
+                            <p class="text-muted text-center mb-0">Loading current air quality data...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4 full-width-section">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-chart-line"></i> 24-Hour Forecast - <span id="current-site-name">Select a station</span>
+                        </h5>
+                        <a id="full-report-btn" href="#" class="btn btn-sm btn-dark text-white d-none">
+                            View Full Analysis Page <i class="fas fa-arrow-right ms-1"></i>
+                        </a>
+                    </div>
+                    <div class="card-body">
+                        <div id="predictions-container">
+                            <p class="text-muted text-center mb-0">Select a station to view 24-hour predictions</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="loading" class="d-none">
+        <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0,0,0,0.5); z-index: 9999;">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
+    <script>
+        // Initialize map
+        var map = L.map('map').setView([28.6139, 77.2090], 10);
+        
+        // Add tile layer
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Site data from Flask
+        var sites = {
+            {% for site_id, site in sites.items() %}
+            {{ site_id }}: {
+                lat: {{ site.lat }},
+                lon: {{ site.lon }},
+                name: "{{ site.name }}"
+            },
+            {% endfor %}
+        };
+
+        // Variables for gradient layer
+        var gradientLayer = null;
+        var currentPollutant = 'o3';
+
+        // Add markers to map with gradient colors
+        var markers = {};
+        
+        function updateMarkersWithGradient(gradientData) {
+            // Remove existing markers
+            for (var siteId in markers) {
+                map.removeLayer(markers[siteId]);
+            }
+            markers = {};
+
+            // Add new markers with gradient colors
+            for (var siteId in gradientData) {
+                var site = gradientData[siteId];
+                var color = currentPollutant === 'o3' ? site.o3_color : site.no2_color;
+                
+                // Create a custom icon with the gradient color
+                var customIcon = L.divIcon({
+                    html: `<div style="background-color: ${color}; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>`,
+                    className: 'gradient-marker',
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10]
+                });
+
+                var marker = L.marker([site.lat, site.lon], { icon: customIcon })
+                    .addTo(map)
+                    .bindPopup(`
+                        <b>${site.name}</b><br>
+                        Site ${siteId}<br>
+                        O₃: ${site.o3} µg/m³ (${site.o3_category})<br>
+                        NO₂: ${site.no2} µg/m³ (${site.no2_category})<br>
+                        <div class="d-grid gap-2 mt-2">
+                            <button onclick="getPredictions(${siteId})" class="btn btn-sm btn-primary">
+                                Update Dashboard
+                            </button>
+                            <a href="/result/${siteId}" class="btn btn-sm btn-outline-secondary">
+                                Go to Result Page
+                            </a>
+                        </div>
+                    `);
+                
+                markers[siteId] = marker;
+                
+                marker.on('click', function() {
+                    var siteId = Object.keys(markers).find(key => markers[key] === this);
+                    // Automatically update dashboard on click, but don't force page reload
+                    getPredictions(parseInt(siteId));
+                });
+            }
+        }
+
+        function createGradientOverlay(gradientData) {
+            // Remove existing gradient layer
+            if (gradientLayer) {
+                map.removeLayer(gradientLayer);
+            }
+
+            // Create a simple gradient effect using circles around each point
+            var circles = [];
+            for (var siteId in gradientData) {
+                var site = gradientData[siteId];
+                var color = currentPollutant === 'o3' ? site.o3_color : site.no2_color;
+                var value = currentPollutant === 'o3' ? site.o3 : site.no2;
+                
+                // Create gradient circles with opacity based on value
+                var intensity = Math.min(value / 200, 1); // Normalize intensity
+                var radius = 3000 + (intensity * 7000); // Radius based on intensity
+                
+                var circle = L.circle([site.lat, site.lon], {
+                    color: color,
+                    fillColor: color,
+                    fillOpacity: 0.3,
+                    radius: radius
+                }).addTo(map);
+                
+                circles.push(circle);
+            }
+            
+            gradientLayer = L.layerGroup(circles);
+            return gradientLayer;
+        }
+
+        async function updateGradientLayer() {
+            currentPollutant = document.getElementById('pollutant-select').value;
+            var showGradient = document.getElementById('show-gradient').checked;
+            
+            // Update pollutant display
+            document.getElementById('current-pollutant-display').textContent = 
+                currentPollutant === 'o3' ? 'O₃' : 'NO₂';
+            
+            try {
+                const response = await fetch('/gradient_data');
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Update markers with current colors
+                    updateMarkersWithGradient(data.gradient_data);
+                    
+                    // Update gradient info in horizontal layout
+                    updateGradientInfoHorizontal(data.gradient_data);
+                    
+                    // Create or remove gradient overlay
+                    if (showGradient) {
+                        createGradientOverlay(data.gradient_data);
+                    } else if (gradientLayer) {
+                        map.removeLayer(gradientLayer);
+                        gradientLayer = null;
+                    }
+                }
+            } catch (error) {
+                console.error('Error updating gradient layer:', error);
+            }
+        }
+
+        function updateGradientInfoHorizontal(gradientData) {
+            const container = document.getElementById('gradient-info');
+            
+            let html = `<div class="gradient-horizontal">`;
+
+            // Show all sites in horizontal scrollable cards
+            for (var siteId in gradientData) {
+                var site = gradientData[siteId];
+                // var value = currentPollutant === 'o3' ? site.o3 : site.no2; // Unused variable
+                // var color = currentPollutant === 'o3' ? site.o3_color : site.no2_color; // Unused variable
+                // var category = currentPollutant === 'o3' ? site.o3_category : site.no2_category; // Unused variable
+                
+                html += `
+                    <div class="gradient-card-horizontal">
+                        <div class="site-name-gradient">📍 ${site.name}</div>
+                        <div class="gradient-values-horizontal">
+                            <div class="gradient-value-horizontal o3" style="border-color: ${site.o3_color}">
+                                <div class="gradient-label-horizontal">O₃</div>
+                                <div class="gradient-number-horizontal">${site.o3}</div>
+                                <div class="gradient-category-horizontal" style="background-color: ${site.o3_color}; color: ${site.o3_color === '#ffff00' ? 'black' : 'white'}">
+                                    ${site.o3_category}
+                                </div>
+                            </div>
+                            <div class="gradient-value-horizontal no2" style="border-color: ${site.no2_color}">
+                                <div class="gradient-label-horizontal">NO₂</div>
+                                <div class="gradient-number-horizontal">${site.no2}</div>
+                                <div class="gradient-category-horizontal" style="background-color: ${site.no2_color}; color: ${site.no2_color === '#ffff00' ? 'black' : 'white'}">
+                                    ${site.no2_category}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <a href="/result/${siteId}" class="btn btn-xs btn-outline-dark" style="font-size: 0.7em;">Full Report</a>
+                        </div>
+                    </div>
+                `;
+            }
+
+            html += `</div><small class="text-muted mt-2 d-block">Updated: ${new Date().toLocaleTimeString()} | Showing: ${currentPollutant === 'o3' ? 'O₃' : 'NO₂'} concentrations</small>`;
+            container.innerHTML = html;
+        }
+
+        function showLoading() {
+            document.getElementById('loading').classList.remove('d-none');
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').classList.add('d-none');
+        }
+
+        async function getPredictions(siteId) {
+            showLoading();
+            
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ site_id: siteId })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayPredictions(data);
+                    // Update current site name in header
+                    document.getElementById('current-site-name').textContent = data.site_name;
+                    
+                    // SHOW AND UPDATE THE FULL REPORT BUTTON
+                    const reportBtn = document.getElementById('full-report-btn');
+                    reportBtn.href = `/result/${siteId}`;
+                    reportBtn.classList.remove('d-none');
+
+                    // Highlight the selected marker
+                    for (var id in markers) {
+                        if (parseInt(id) === siteId) {
+                            markers[id].openPopup();
+                        }
+                    }
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Error fetching predictions: ' + error);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function displayPredictions(data) {
+            const container = document.getElementById('predictions-container');
+            const predictions = data.predictions;
+            
+            let html = `<div class="predictions-horizontal">`;
+
+            // Show ALL 24 predictions in horizontal scrollable cards
+            predictions.forEach(pred => {
+                const time = pred.timestamp.split(' ')[1]; // Get only time part
+                
+                html += `
+                    <div class="prediction-card-horizontal">
+                        <div class="prediction-time">${time}</div>
+                        <div class="gas-values-horizontal">
+                            <div class="gas-value-horizontal o3" style="border-color: ${pred.o3_color}">
+                                <div class="gas-label-horizontal">O₃</div>
+                                <div class="gas-number-horizontal">${pred.o3}</div>
+                                <div class="gas-category-horizontal" style="background-color: ${pred.o3_color}; color: ${pred.o3_color === '#ffff00' ? 'black' : 'white'}">
+                                    ${pred.o3_category}
+                                </div>
+                            </div>
+                            <div class="gas-value-horizontal no2" style="border-color: ${pred.no2_color}">
+                                <div class="gas-label-horizontal">NO₂</div>
+                                <div class="gas-number-horizontal">${pred.no2}</div>
+                                <div class="gas-category-horizontal" style="background-color: ${pred.no2_color}; color: ${pred.no2_color === '#ffff00' ? 'black' : 'white'}">
+                                    ${pred.no2_category}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += `</div><small class="text-muted mt-2 d-block">Updated: ${data.timestamp}</small>`;
+            container.innerHTML = html;
+        }
+
+        // Load predictions for first site by default and initialize gradient
+        document.addEventListener('DOMContentLoaded', function() {
+            getPredictions(1);
+            updateGradientLayer();
+            
+            // Update gradient every 2 minutes
+            setInterval(updateGradientLayer, 120000);
+        });
+    </script>
+</body>
+</html>

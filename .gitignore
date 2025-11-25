@@ -1,0 +1,36 @@
+--- Python & Flask ---
+
+pycache/
+*.py[cod]
+*$py.class
+venv/
+env/
+isro_project_env/
+.env
+instance/
+.webassets-cache
+
+--- Mac & Windows System Files ---
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+--- PyCharm / VS Code Settings ---
+
+.idea/
+.vscode/
+*.swp
+
+--- Large Data & Training Files ---
+
+We ignore these to keep the deployment light
+
+*.csv
+*.ipynb
+*.xlsx
+*.docx
+
+--- Render / Deployment ---
+
+Keep the models, but ignore temporary build files
